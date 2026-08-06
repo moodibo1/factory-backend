@@ -1,0 +1,27 @@
+# =========================
+# Backend (Python / FastAPI)
+# =========================
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.sqlite3
+
+# =========================
+# Uploads and scripts
+# =========================
+uploads/
+test_gemini.py
+fix_permissions.py
+fix_categories.py
+
+# =========================
+# Environment Variables & OS
+# =========================
+.env
+.env.local
+.vscode/
+.idea/
+.DS_Store
