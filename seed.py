@@ -40,6 +40,7 @@ def seed_admin():
             hashed_password=hash_password(admin_password),
             role=RoleEnum.admin,
             status=UserStatusEnum.approved,
+            is_verified=True,
             category=CategoryEnum.admin,
             # Granting total permissions to the admin
             permissions='{"can_add": true, "can_delete": true, "can_edit_permissions": true}'
