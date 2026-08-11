@@ -18,7 +18,6 @@ import json, os, uuid
 
 from datetime import datetime
 
-import resend
 
 from dotenv import load_dotenv
 
@@ -28,131 +27,76 @@ load_dotenv()
 
 
 
-def send_verification_email_real(email_to: str, code: str):
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
-    import resend
+def get_smtp_config():
+    return {
+        "server": os.getenv("SMTP_SERVER", "smtp.gmail.com"),
+        "port": int(os.getenv("SMTP_PORT", 587)),
+        "username": os.getenv("SMTP_USERNAME", ""),
+        "password": os.getenv("SMTP_PASSWORD", ""),
+        "from_email": os.getenv("SMTP_FROM_EMAIL", os.getenv("SMTP_USERNAME", ""))
+    }
 
+def send_smtp_email(to_email: str, subject: str, html_content: str):
+    config = get_smtp_config()
     
+    if not config["username"] or not config["password"]:
+        print(f"⚠️ SMTP credentials missing! Skipping email to {to_email}. CONTENT:\n{html_content}")
+        return False
 
-    # Reload the environment to ensure the key is captured
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = config["from_email"]
+    msg["To"] = to_email
 
-    from dotenv import load_dotenv
-
-    load_dotenv()
-
-    
-
-    resend.api_key = os.getenv("RESEND_API_KEY", "")
-
-    
-
-    html = f"""
-
-    <div dir="rtl" style="font-family: Arial, sans-serif; text-align: center; padding: 20px;">
-
-        <h2>Ù…Ø±Ø­Ø¨Ø§Ù‹ Ø¨Ùƒ ÙÙŠ Ù†Ø¸Ø§Ù… Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ù…ØµÙ†Ø¹</h2>
-
-        <p>Ø±Ù…Ø² Ø§Ù„ØªØ­Ù‚Ù‚ Ø§Ù„Ø®Ø§Øµ Ø¨Ùƒ Ù‡Ùˆ:</p>
-
-        <h1 style="color: #6a0dad; letter-spacing: 5px;">{code}</h1>
-
-        <p>Ù„Ø§ ØªØ´Ø§Ø±Ùƒ Ù‡Ø°Ø§ Ø§Ù„Ø±Ù…Ø² Ù…Ø¹ Ø£Ø­Ø¯.</p>
-
-    </div>
-
-    """
+    part = MIMEText(html_content, "html")
+    msg.attach(part)
 
     try:
-
-        if not resend.api_key:
-
-            print("âš ï¸ RESEND_API_KEY is missing! Printing code to console instead:")
-
-            print(f"ðŸ”‘ CODE for {email_to}: {code}")
-
-            return
-
-            
-
-        resend.Emails.send({
-
-            "from": "Acme Factory <onboarding@resend.dev>",
-
-            "to": email_to,
-
-            "subject": "Ø±Ù…Ø² Ø§Ù„ØªØ­Ù‚Ù‚ - Ù†Ø¸Ø§Ù… Ù…ØµÙ†Ø¹Ùƒ",
-
-            "html": html
-
-        })
-
-        print(f"âœ… Fast API Email sent to {email_to}")
-
+        server = smtplib.SMTP(config["server"], config["port"])
+        server.starttls()
+        server.login(config["username"], config["password"])
+        server.sendmail(config["from_email"], to_email, msg.as_string())
+        server.quit()
+        return True
     except Exception as e:
+        print(f"❌ Failed to send SMTP email: {e}")
+        return False
 
-        print(f"âŒ Failed to send email: {e}")
-
-
+def send_verification_email_real(email_to: str, code: str):
+    from dotenv import load_dotenv
+    load_dotenv()
+    
+    html = f"""
+    <div dir="rtl" style="font-family: Arial, sans-serif; text-align: center; padding: 20px;">
+        <h2>رسالة تحقق من نظام المصنع</h2>
+        <p>رمز الدخول الخاص بك هو:</p>
+        <h1 style="color: #6a0dad; letter-spacing: 5px;">{code}</h1>
+        <p>يرجى إدخاله في النظام لإكمال التسجيل.</p>
+    </div>
+    """
+    success = send_smtp_email(email_to, "رسالة التحقق - نظام المصنع", html)
+    if success:
+        print(f"📧 Fast API Email sent via SMTP to {email_to}")
 
 def send_reset_email_real(email_to: str, code: str):
-
-    import resend
-
     from dotenv import load_dotenv
-
     load_dotenv()
-
     
-
-    resend.api_key = os.getenv("RESEND_API_KEY", "")
-
-    
-
     html = f"""
-
     <div dir="rtl" style="font-family: Arial, sans-serif; text-align: center; padding: 20px;">
-
-        <h2>Ø§Ø³ØªØ¹Ø§Ø¯Ø© ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±</h2>
-
-        <p>Ø±Ù…Ø² Ø§Ø³ØªØ¹Ø§Ø¯Ø© ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± Ø§Ù„Ø®Ø§Øµ Ø¨Ùƒ Ù‡Ùˆ:</p>
-
-        <h1 style="color: #d9534f; letter-spacing: 5px;">{code}</h1>
-
+        <h2>استعادة كلمة المرور</h2>
+        <p>رمز استعادة كلمة المرور الخاص بك هو:</p>
+        <h1 style="color: ##eab308; letter-spacing: 5px;">{code}</h1>
+        <p>إذا لم تطلب هذا، يمكنك تجاهل هذه الرسالة.</p>
     </div>
-
     """
-
-    try:
-
-        if not resend.api_key:
-
-            print("âš ï¸ RESEND_API_KEY is missing! Printing code to console instead:")
-
-            print(f"ðŸ”‘ RESET CODE for {email_to}: {code}")
-
-            return
-
-            
-
-        resend.Emails.send({
-
-            "from": "Acme Factory <onboarding@resend.dev>",
-
-            "to": email_to,
-
-            "subject": "Ø§Ø³ØªØ¹Ø§Ø¯Ø© ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±",
-
-            "html": html
-
-        })
-
-        print(f"âœ… Fast API Reset Email sent to {email_to}")
-
-    except Exception as e:
-
-        print(f"âŒ Failed to send reset email: {e}")
-
-
+    success = send_smtp_email(email_to, "استعادة كلمة المرور", html)
+    if success:
+        print(f"📧 Fast API Reset Email sent via SMTP to {email_to}")
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -306,7 +250,7 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
     print(f"User found: ID={user.id}, Status={user.status.value}, Email={user.email}")
     if getattr(user, 'is_verified', False) is False:
         print("Result: BLOCKED (NOT VERIFIED)")
-        raise HTTPException(status_code=403, detail="verify your email first")
+        raise HTTPException(status_code=403, detail="Please verify your email before logging in.")
 
 
     
