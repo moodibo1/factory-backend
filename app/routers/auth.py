@@ -191,10 +191,16 @@ def register(data: UserCreate, background_tasks: BackgroundTasks, db: Session = 
     print(f"EMAIL TO: {data.email}")
     print(f"VERIFICATION CODE: {verify_code}")
     print("="*45 + "\n")
-    try:
-        background_tasks.add_task(send_verification_email_real, data.email, verify_code)
-    except:
-        pass
+    
+    import os
+    if not os.getenv("SMTP_USERNAME") or not os.getenv("SMTP_PASSWORD"):
+        print("\n" + "!"*50)
+        print("CRITICAL: SMTP_USERNAME or SMTP_PASSWORD missing!")
+        print("The email WILL NOT send on Render. Check Environment Variables.")
+        print("!"*50 + "\n")
+
+    # Queue email task
+    background_tasks.add_task(send_verification_email_real, data.email, verify_code)
         
     return {"message": "Verification code sent to email"}
 
