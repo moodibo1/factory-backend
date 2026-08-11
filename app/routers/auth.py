@@ -27,42 +27,42 @@ load_dotenv()
 
 
 
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import requests
 
-def get_smtp_config():
-    return {
-        "server": os.getenv("SMTP_SERVER", "smtp.gmail.com"),
-        "port": int(os.getenv("SMTP_PORT", 587)),
-        "username": os.getenv("SMTP_USERNAME", ""),
-        "password": os.getenv("SMTP_PASSWORD", ""),
-        "from_email": os.getenv("SMTP_FROM_EMAIL", os.getenv("SMTP_USERNAME", ""))
+def send_brevo_email(to_email: str, subject: str, html_content: str):
+    url = "https://api.brevo.com/v3/smtp/email"
+    api_key = os.getenv("BREVO_API_KEY")
+    sender_email = os.getenv("SENDER_EMAIL")
+
+    if not api_key or not sender_email:
+        raise ValueError("BREVO_API_KEY or SENDER_EMAIL is missing in environment variables.")
+
+    payload = {
+        "sender": {"name": "Factory App", "email": sender_email},
+        "to": [{"email": to_email}],
+        "subject": subject,
+        "htmlContent": html_content
+    }
+    
+    headers = {
+        "accept": "application/json",
+        "content-type": "application/json",
+        "api-key": api_key
     }
 
-def send_smtp_email(to_email: str, subject: str, html_content: str):
-    config = get_smtp_config()
-    
-    if not config["username"] or not config["password"]:
-        raise ValueError("SMTP credentials (SMTP_USERNAME or SMTP_PASSWORD) are missing in environment variables.")
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = config["from_email"]
-    msg["To"] = to_email
-
-    part = MIMEText(html_content, "html")
-    msg.attach(part)
-
-    print(f"Attempting to connect to SMTP server {config['server']}:{config['port']}...")
-    server = smtplib.SMTP(config["server"], config["port"])
-    server.set_debuglevel(1)  # Enable debug output for smtplib to trace connection issues
-    server.starttls()
-    server.login(config["username"], config["password"])
-    server.sendmail(config["from_email"], to_email, msg.as_string())
-    server.quit()
-    print(f"SMTP Email successfully sent to {to_email}")
-    return True
+    print(f"Attempting to send email via Brevo API to {to_email}...")
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        # Raise exception if non-2xx status code
+        response.raise_for_status()
+        print(f"✅ Brevo Email successfully sent to {to_email}. Response: {response.status_code}")
+        return True
+    except Exception as e:
+        print(f"❌ Failed to send email via Brevo: {str(e)}")
+        if hasattr(e, 'response') and e.response is not None:
+            print(f"Brevo API Response: {e.response.text}")
+        # Re-raise so background task tracks failure
+        raise
 
 def send_verification_email_real(email_to: str, code: str):
     from dotenv import load_dotenv
@@ -76,9 +76,9 @@ def send_verification_email_real(email_to: str, code: str):
         <p>يرجى إدخاله في النظام لإكمال التسجيل.</p>
     </div>
     """
-    success = send_smtp_email(email_to, "رسالة التحقق - نظام المصنع", html)
+    success = send_brevo_email(email_to, "رسالة التحقق - نظام المصنع", html)
     if success:
-        print(f"📧 Fast API Email sent via SMTP to {email_to}")
+        print(f"📧 Fast API Email sent via Brevo to {email_to}")
 
 def send_reset_email_real(email_to: str, code: str):
     from dotenv import load_dotenv
@@ -92,9 +92,9 @@ def send_reset_email_real(email_to: str, code: str):
         <p>إذا لم تطلب هذا، يمكنك تجاهل هذه الرسالة.</p>
     </div>
     """
-    success = send_smtp_email(email_to, "استعادة كلمة المرور", html)
+    success = send_brevo_email(email_to, "استعادة كلمة المرور", html)
     if success:
-        print(f"📧 Fast API Reset Email sent via SMTP to {email_to}")
+        print(f"📧 Fast API Reset Email sent via Brevo to {email_to}")
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -161,6 +161,7 @@ def register(data: UserCreate, background_tasks: BackgroundTasks, db: Session = 
     from datetime import datetime, timedelta
     import uuid
     import json
+    import os
     existing_user = db.query(User).filter(User.email == data.email).first()
     
     verify_code = str(uuid.uuid4()).split('-')[0].upper()
@@ -187,17 +188,14 @@ def register(data: UserCreate, background_tasks: BackgroundTasks, db: Session = 
         db.add(new_user)
         db.commit()
 
-    print("\n" + "="*45)
+    print("="*45)
     print(f"EMAIL TO: {data.email}")
     print(f"VERIFICATION CODE: {verify_code}")
-    print("="*45 + "\n")
+    print("="*45)
     
-    import os
-    if not os.getenv("SMTP_USERNAME") or not os.getenv("SMTP_PASSWORD"):
-        print("\n" + "!"*50)
-        print("CRITICAL: SMTP_USERNAME or SMTP_PASSWORD missing!")
+    if not os.getenv("BREVO_API_KEY") or not os.getenv("SENDER_EMAIL"):
+        print("CRITICAL: BREVO_API_KEY or SENDER_EMAIL missing!")
         print("The email WILL NOT send on Render. Check Environment Variables.")
-        print("!"*50 + "\n")
 
     # Queue email task
     background_tasks.add_task(send_verification_email_real, data.email, verify_code)
