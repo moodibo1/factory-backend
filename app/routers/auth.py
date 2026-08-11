@@ -44,8 +44,7 @@ def send_smtp_email(to_email: str, subject: str, html_content: str):
     config = get_smtp_config()
     
     if not config["username"] or not config["password"]:
-        print(f"⚠️ SMTP credentials missing! Skipping email to {to_email}. CONTENT:\n{html_content}")
-        return False
+        raise ValueError("SMTP credentials (SMTP_USERNAME or SMTP_PASSWORD) are missing in environment variables.")
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
@@ -55,16 +54,15 @@ def send_smtp_email(to_email: str, subject: str, html_content: str):
     part = MIMEText(html_content, "html")
     msg.attach(part)
 
-    try:
-        server = smtplib.SMTP(config["server"], config["port"])
-        server.starttls()
-        server.login(config["username"], config["password"])
-        server.sendmail(config["from_email"], to_email, msg.as_string())
-        server.quit()
-        return True
-    except Exception as e:
-        print(f"❌ Failed to send SMTP email: {e}")
-        return False
+    print(f"Attempting to connect to SMTP server {config['server']}:{config['port']}...")
+    server = smtplib.SMTP(config["server"], config["port"])
+    server.set_debuglevel(1)  # Enable debug output for smtplib to trace connection issues
+    server.starttls()
+    server.login(config["username"], config["password"])
+    server.sendmail(config["from_email"], to_email, msg.as_string())
+    server.quit()
+    print(f"SMTP Email successfully sent to {to_email}")
+    return True
 
 def send_verification_email_real(email_to: str, code: str):
     from dotenv import load_dotenv
