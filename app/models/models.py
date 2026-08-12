@@ -48,6 +48,8 @@ class User(Base):
     status = Column(Enum(UserStatusEnum), default=UserStatusEnum.pending)
     permissions = Column(Text, default='{"can_add": true, "can_delete": false, "can_edit_permissions": false}')
     category = Column(Enum(CategoryEnum), nullable=True)
+    verification_code = Column(String, nullable=True)
+    token_expires_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     issues = relationship("Issue", back_populates="creator")
     comments = relationship("Comment", back_populates="author")
