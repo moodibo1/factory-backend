@@ -9,15 +9,19 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from app.database import SessionLocal, engine, Base
 from app.models.models import User, RoleEnum, UserStatusEnum
 from app.auth import hash_password
+from sqlalchemy import text
 import json
 
 Base.metadata.create_all(bind=engine)
 db = SessionLocal()
 
-# 1. Clear all users (cascades to related rows via ON DELETE handled by FK)
+# Delete in FK-safe order: comments → notifications → issues → users
+db.execute(text("DELETE FROM comments"))
+db.execute(text("DELETE FROM notifications"))
+db.execute(text("DELETE FROM issues"))
 deleted = db.query(User).delete()
 db.commit()
-print(f"Deleted {deleted} user(s).")
+print(f"Deleted {deleted} user(s) and all related rows.")
 
 # 2. Create admin
 admin = User(
