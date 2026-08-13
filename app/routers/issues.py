@@ -33,10 +33,7 @@ def get_issues(
     q = db.query(Issue).filter(Issue.is_archived == False)
     
     # === DATA ISOLATION ===
-    if current_user.role == "admin":
-        # Broadcaster: admin strictly sees ONLY their own posts
-        q = q.filter(Issue.creator_id == current_user.id)
-    else:
+    if current_user.role != "admin":
         # Normal users see issues published to their specific category
         user_cat = current_user.category.value if current_user.category else None
         if user_cat:
@@ -64,9 +61,7 @@ def get_issues_count(
 ):
     q = db.query(Issue).filter(Issue.is_archived == False)
     
-    if current_user.role == "admin":
-        q = q.filter(Issue.creator_id == current_user.id)
-    else:
+    if current_user.role != "admin":
         user_cat = current_user.category.value if current_user.category else None
         if user_cat:
             from sqlalchemy import cast, String

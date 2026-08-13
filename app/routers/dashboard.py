@@ -16,7 +16,7 @@ router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 @router.get("/stats", response_model=DashboardStats)
 def get_stats(db: Session = Depends(get_db), admin: User = Depends(require_admin)):
-    issues = db.query(Issue).filter(Issue.creator_id == admin.id).all()
+    issues = db.query(Issue).all()
     return {
         "total": len(issues),
         "open": sum(1 for i in issues if i.status == StatusEnum.open),
@@ -36,7 +36,7 @@ def export_report(
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin)
 ):
-    q = db.query(Issue).filter(Issue.creator_id == admin.id)
+    q = db.query(Issue)
     
     if start_date:
         try:
