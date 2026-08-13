@@ -6,7 +6,7 @@ from app.models.models import Issue, Comment, StatusEnum, User
 from app.schemas import IssueOut, CommentCreate, CommentOut
 from app.auth import get_current_user, require_admin
 from app.models.models import TypeEnum, CategoryEnum
-import shutil, os, uuid, json
+import os, uuid, json, requests
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/issues", tags=["Issues"])
@@ -145,36 +145,29 @@ def create_issue(
         if is_video and file_size > MAX_VIDEO_SIZE:
             raise HTTPException(status_code=400, detail="حجم الفيديو كبير جداً. الحد الأقصى 50MB")
 
-        # Supabase Storage Upload
+        # Upload to Supabase Storage — required, no local fallback
         filename = f"{uuid.uuid4()}.{ext}"
-        
+
         supabase_url = os.getenv("SUPABASE_URL")
         supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
         bucket_name = os.getenv("SUPABASE_BUCKET", "media")
-        
-        if supabase_url and supabase_key:
-            # Upload to Supabase Storage Bucket
-            import requests
-            upload_url = f"{supabase_url}/storage/v1/object/{bucket_name}/{filename}"
-            headers = {
-                "Authorization": f"Bearer {supabase_key}",
-                "apikey": supabase_key,
-                "Content-Type": file.content_type
-            }
-            res = requests.post(upload_url, headers=headers, data=content)
-            
-            if res.status_code >= 400:
-                print(f"Supabase Upload Error: {res.text}")
-                raise HTTPException(status_code=500, detail="فشل رفع الملف إلى التخزين السحابي")
-                
-            media_url = f"{supabase_url}/storage/v1/object/public/{bucket_name}/{filename}"
-        else:
-            # Fallback to local storage if Supabase is strictly missing from env
-            path = os.path.join(UPLOAD_DIR, filename)
-            with open(path, "wb") as f:
-                f.write(content)
-            media_url = f"/uploads/{filename}"
 
+        if not supabase_url or not supabase_key:
+            raise HTTPException(status_code=500, detail="إعدادات التخزين السحابي غير مكتملة على الخادم")
+
+        upload_url = f"{supabase_url}/storage/v1/object/{bucket_name}/{filename}"
+        headers = {
+            "Authorization": f"Bearer {supabase_key}",
+            "apikey": supabase_key,
+            "Content-Type": file.content_type,
+        }
+        res = requests.post(upload_url, headers=headers, data=content)
+
+        if res.status_code >= 400:
+            print(f"Supabase Upload Error {res.status_code}: {res.text}")
+            raise HTTPException(status_code=500, detail="فشل رفع الملف إلى التخزين السحابي")
+
+        media_url = f"{supabase_url}/storage/v1/object/public/{bucket_name}/{filename}"
         media_type = "video" if is_video else "image"
 
     issue = Issue(
