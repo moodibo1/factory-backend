@@ -124,7 +124,7 @@ def update_issue(issue_id: int, data: UpdateIssueRequest, db: Session = Depends(
 
 @router.get("/archived-issues", response_model=list[IssueOut])
 def get_archived_issues(db: Session = Depends(get_db), admin: User = Depends(require_admin)):
-    return db.query(Issue).filter(Issue.is_archived == True).order_by(Issue.created_at.desc()).all()
+    return db.query(Issue).filter(Issue.is_archived == True, Issue.creator_id == admin.id).order_by(Issue.created_at.desc()).all()
 
 @router.patch("/issues/{issue_id}/archive", response_model=IssueOut)
 def archive_issue(issue_id: int, db: Session = Depends(get_db), admin: User = Depends(require_admin)):

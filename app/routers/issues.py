@@ -33,11 +33,13 @@ def get_issues(
     q = db.query(Issue).filter(Issue.is_archived == False)
     
     # === DATA ISOLATION ===
-    # Admin sees everything, non-admin only sees their category
-    if current_user.category != CategoryEnum.admin:
+    if current_user.role == "admin":
+        # Broadcaster: admin strictly sees ONLY their own posts
+        q = q.filter(Issue.creator_id == current_user.id)
+    else:
+        # Normal users see issues published to their specific category
         user_cat = current_user.category.value if current_user.category else None
         if user_cat:
-            # PostgreSQL specific JSON casting workaround for contains check
             from sqlalchemy import cast, String
             q = q.filter(
                 (cast(Issue.categories, String).like(f'%"{user_cat}"%')) | 
@@ -62,7 +64,9 @@ def get_issues_count(
 ):
     q = db.query(Issue).filter(Issue.is_archived == False)
     
-    if current_user.category != CategoryEnum.admin:
+    if current_user.role == "admin":
+        q = q.filter(Issue.creator_id == current_user.id)
+    else:
         user_cat = current_user.category.value if current_user.category else None
         if user_cat:
             from sqlalchemy import cast, String
@@ -100,29 +104,24 @@ def create_issue(
     media_type = None
 
     # === CATEGORY VALIDATION ===
-    # Non-admin users can ONLY post to their assigned category
-    if current_user.category != CategoryEnum.admin:
+    if current_user.role != "admin":
         user_category = current_user.category.value if current_user.category else None
         if not user_category:
             raise HTTPException(status_code=403, detail="Your account has no assigned category")
         if category != user_category:
             raise HTTPException(status_code=403, detail=f"You can only post to your assigned category: {user_category}")
-
-    # Determine issue categories
-    issue_categories = [category]  # default: the single selected category
-    
-    # Admin can specify multiple categories for cross-posting
-    if current_user.category == CategoryEnum.admin and categories:
-        try:
-            parsed = json.loads(categories)
-            if isinstance(parsed, list) and len(parsed) > 0:
-                issue_categories = parsed
-        except:
-            pass
-    
-    # For non-admin, force categories to be only their own category
-    if current_user.category != CategoryEnum.admin:
-        issue_categories = [current_user.category.value] if current_user.category else [category]
+        issue_categories = [user_category]
+        issue_primary_category = user_category
+    else:
+        issue_primary_category = category
+        issue_categories = [category]
+        if categories:
+            try:
+                parsed = json.loads(categories)
+                if isinstance(parsed, list) and len(parsed) > 0:
+                    issue_categories = parsed
+            except:
+                pass
 
     if file and file.filename:
         # Validate file extension
@@ -162,7 +161,7 @@ def create_issue(
 
     issue = Issue(
         title=title, description=description,
-        type=type, category=category,
+        type=type, category=issue_primary_category,
         categories=issue_categories,
         media_url=media_url, media_type=media_type,
         creator_id=current_user.id,
