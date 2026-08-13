@@ -217,7 +217,7 @@ def close_issue(issue_id: int, db: Session = Depends(get_db), admin: User = Depe
     return issue
 
 class ShareIssueRequest(BaseModel):
-    category: str
+    categories: list[str]
 
 @router.post("/{issue_id}/share", response_model=IssueOut)
 def share_issue(issue_id: int, data: ShareIssueRequest, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
@@ -225,14 +225,13 @@ def share_issue(issue_id: int, data: ShareIssueRequest, db: Session = Depends(ge
     if not issue:
         raise HTTPException(status_code=404, detail="Issue not found")
     
-    current_categories = issue.categories or []
-    if data.category not in current_categories:
-        current_categories.append(data.category)
-        # SQLAlchemy needs to know the JSON array changed
-        issue.categories = list(current_categories)
-        db.commit()
-        db.refresh(issue)
+    # Overwrite the post's categories array entirely with the new selection
+    if not data.categories:
+        raise HTTPException(status_code=400, detail="Must select at least one category")
         
+    issue.categories = data.categories
+    db.commit()
+    db.refresh(issue)
     return issue
 
 @router.post("/{issue_id}/comments", response_model=CommentOut)
