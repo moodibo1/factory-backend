@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+﻿from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import Optional
 from app.database import get_db
@@ -46,7 +46,7 @@ def get_issues(
             return []
     
     if category:
-        q = q.filter(Issue.category == category)
+        from sqlalchemy import cast, String; q = q.filter((cast(Issue.categories, String).like(f'%"{category}"%')) | (Issue.category == category))
     if creator_id:
         q = q.filter(Issue.creator_id == creator_id)
     offset = (page - 1) * limit
@@ -73,7 +73,7 @@ def get_issues_count(
             return {"total": 0}
             
     if category:
-        q = q.filter(Issue.category == category)
+        from sqlalchemy import cast, String; q = q.filter((cast(Issue.categories, String).like(f'%"{category}"%')) | (Issue.category == category))
     if creator_id:
         q = q.filter(Issue.creator_id == creator_id)
     return {"total": q.count()}
@@ -124,7 +124,7 @@ def create_issue(
         if ext not in ALLOWED_EXTENSIONS:
             raise HTTPException(
                 status_code=400,
-                detail=f"نوع الملف غير مسموح. الأنواع المسموحة: {', '.join(ALLOWED_EXTENSIONS)}"
+                detail=f"Ù†ÙˆØ¹ Ø§Ù„Ù…Ù„Ù ØºÙŠØ± Ù…Ø³Ù…ÙˆØ­. Ø§Ù„Ø£Ù†ÙˆØ§Ø¹ Ø§Ù„Ù…Ø³Ù…ÙˆØ­Ø©: {', '.join(ALLOWED_EXTENSIONS)}"
             )
 
         # Validate MIME type
@@ -133,7 +133,7 @@ def create_issue(
         if not is_image and not is_video:
             raise HTTPException(
                 status_code=400,
-                detail="نوع الملف غير مدعوم. يُسمح فقط بالصور (JPG, PNG, WEBP) ومقاطع الفيديو (MP4, MOV)"
+                detail="Ù†ÙˆØ¹ Ø§Ù„Ù…Ù„Ù ØºÙŠØ± Ù…Ø¯Ø¹ÙˆÙ…. ÙŠÙØ³Ù…Ø­ ÙÙ‚Ø· Ø¨Ø§Ù„ØµÙˆØ± (JPG, PNG, WEBP) ÙˆÙ…Ù‚Ø§Ø·Ø¹ Ø§Ù„ÙÙŠØ¯ÙŠÙˆ (MP4, MOV)"
             )
 
         # Read file content and validate size
@@ -141,11 +141,11 @@ def create_issue(
         file_size = len(content)
 
         if is_image and file_size > MAX_IMAGE_SIZE:
-            raise HTTPException(status_code=400, detail="حجم الصورة كبير جداً. الحد الأقصى 10MB")
+            raise HTTPException(status_code=400, detail="Ø­Ø¬Ù… Ø§Ù„ØµÙˆØ±Ø© ÙƒØ¨ÙŠØ± Ø¬Ø¯Ø§Ù‹. Ø§Ù„Ø­Ø¯ Ø§Ù„Ø£Ù‚ØµÙ‰ 10MB")
         if is_video and file_size > MAX_VIDEO_SIZE:
-            raise HTTPException(status_code=400, detail="حجم الفيديو كبير جداً. الحد الأقصى 50MB")
+            raise HTTPException(status_code=400, detail="Ø­Ø¬Ù… Ø§Ù„ÙÙŠØ¯ÙŠÙˆ ÙƒØ¨ÙŠØ± Ø¬Ø¯Ø§Ù‹. Ø§Ù„Ø­Ø¯ Ø§Ù„Ø£Ù‚ØµÙ‰ 50MB")
 
-        # Upload to Supabase Storage — required, no local fallback
+        # Upload to Supabase Storage â€” required, no local fallback
         filename = f"{uuid.uuid4()}.{ext}"
 
         supabase_url = os.getenv("SUPABASE_URL")
@@ -153,7 +153,7 @@ def create_issue(
         bucket_name = os.getenv("SUPABASE_BUCKET", "media")
 
         if not supabase_url or not supabase_key:
-            raise HTTPException(status_code=500, detail="إعدادات التخزين السحابي غير مكتملة على الخادم")
+            raise HTTPException(status_code=500, detail="Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ø§Ù„ØªØ®Ø²ÙŠÙ† Ø§Ù„Ø³Ø­Ø§Ø¨ÙŠ ØºÙŠØ± Ù…ÙƒØªÙ…Ù„Ø© Ø¹Ù„Ù‰ Ø§Ù„Ø®Ø§Ø¯Ù…")
 
         upload_url = f"{supabase_url}/storage/v1/object/{bucket_name}/{filename}"
         headers = {
@@ -165,7 +165,7 @@ def create_issue(
 
         if res.status_code >= 400:
             print(f"Supabase Upload Error {res.status_code}: {res.text}")
-            raise HTTPException(status_code=500, detail="فشل رفع الملف إلى التخزين السحابي")
+            raise HTTPException(status_code=500, detail="ÙØ´Ù„ Ø±ÙØ¹ Ø§Ù„Ù…Ù„Ù Ø¥Ù„Ù‰ Ø§Ù„ØªØ®Ø²ÙŠÙ† Ø§Ù„Ø³Ø­Ø§Ø¨ÙŠ")
 
         media_url = f"{supabase_url}/storage/v1/object/public/{bucket_name}/{filename}"
         media_type = "video" if is_video else "image"
