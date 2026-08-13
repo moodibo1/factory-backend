@@ -145,13 +145,36 @@ def create_issue(
         if is_video and file_size > MAX_VIDEO_SIZE:
             raise HTTPException(status_code=400, detail="حجم الفيديو كبير جداً. الحد الأقصى 50MB")
 
-        # Save file
+        # Supabase Storage Upload
         filename = f"{uuid.uuid4()}.{ext}"
-        path = os.path.join(UPLOAD_DIR, filename)
-        with open(path, "wb") as f:
-            f.write(content)
+        
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        bucket_name = os.getenv("SUPABASE_BUCKET", "media")
+        
+        if supabase_url and supabase_key:
+            # Upload to Supabase Storage Bucket
+            import requests
+            upload_url = f"{supabase_url}/storage/v1/object/{bucket_name}/{filename}"
+            headers = {
+                "Authorization": f"Bearer {supabase_key}",
+                "apikey": supabase_key,
+                "Content-Type": file.content_type
+            }
+            res = requests.post(upload_url, headers=headers, data=content)
+            
+            if res.status_code >= 400:
+                print(f"Supabase Upload Error: {res.text}")
+                raise HTTPException(status_code=500, detail="فشل رفع الملف إلى التخزين السحابي")
+                
+            media_url = f"{supabase_url}/storage/v1/object/public/{bucket_name}/{filename}"
+        else:
+            # Fallback to local storage if Supabase is strictly missing from env
+            path = os.path.join(UPLOAD_DIR, filename)
+            with open(path, "wb") as f:
+                f.write(content)
+            media_url = f"/uploads/{filename}"
 
-        media_url = f"/uploads/{filename}"
         media_type = "video" if is_video else "image"
 
     issue = Issue(
