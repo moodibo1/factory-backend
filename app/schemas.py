@@ -47,6 +47,7 @@ class IssueOut(BaseModel):
     type: TypeEnum
     status: StatusEnum
     category: str
+    in_progress_at: Optional[datetime] = None
     categories: Optional[List[str]] = []
     media_url: Optional[str] = None
     media_type: Optional[str] = None

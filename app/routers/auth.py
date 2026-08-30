@@ -11,13 +11,14 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 
 @router.post("/register")
 def register(data: UserCreate, db: Session = Depends(get_db)):
-    existing = db.query(User).filter(User.email == data.email).first()
+    cleaned_email = data.email.strip().lower()
+    existing = db.query(User).filter(User.email == cleaned_email).first()
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
 
     new_user = User(
         name=data.name,
-        email=data.email,
+        email=cleaned_email,
         hashed_password=hash_password(data.password),
         status=UserStatusEnum.pending,
         permissions=json.dumps({"can_add": True, "can_delete": False, "can_edit_permissions": False})

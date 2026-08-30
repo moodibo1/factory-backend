@@ -64,6 +64,7 @@ class Issue(Base):
     media_url = Column(String, nullable=True)
     media_type = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    in_progress_at = Column(DateTime(timezone=True), nullable=True)
     closed_at = Column(DateTime(timezone=True), nullable=True)
     is_archived = Column(Boolean, default=False, nullable=False)
     creator_id = Column(Integer, ForeignKey("users.id"))

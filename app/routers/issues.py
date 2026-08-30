@@ -187,12 +187,17 @@ def cycle_status(issue_id: int, db: Session = Depends(get_db), admin: User = Dep
     issue = db.query(Issue).filter(Issue.id == issue_id).first()
     if not issue:
         raise HTTPException(status_code=404, detail="Issue not found")
-    from datetime import datetime
+    from datetime import datetime,timezone
     issue.status = STATUS_CYCLE[issue.status]
     if issue.status == StatusEnum.closed:
-        issue.closed_at = datetime.utcnow()
+        issue.closed_at = datetime.now(timezone.utc)
+    elif issue.status == StatusEnum.in_progress:
+        issue.closed_at = None
+        if issue.in_progress_at is None:
+         issue.in_progress_at = datetime.now(timezone.utc)
     else:
         issue.closed_at = None
+        
     db.commit()
     db.refresh(issue)
     return issue
@@ -202,9 +207,11 @@ def close_issue(issue_id: int, db: Session = Depends(get_db), admin: User = Depe
     issue = db.query(Issue).filter(Issue.id == issue_id).first()
     if not issue:
         raise HTTPException(status_code=404, detail="Issue not found")
-    from datetime import datetime
+    
+    from datetime import datetime, timezone
+    
     issue.status = StatusEnum.closed
-    issue.closed_at = datetime.utcnow()
+    issue.closed_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(issue)
     return issue
@@ -239,7 +246,11 @@ def add_comment(issue_id: int, data: CommentCreate, db: Session = Depends(get_db
     return comment
 
 @router.get("/{issue_id}/comments", response_model=list[CommentOut])
-def get_comments(issue_id: int, db: Session = Depends(get_db)):
+def get_comments(
+    issue_id: int, 
+    db: Session = Depends(get_db),  
+    current_user = Depends(get_current_user)  
+):
     return db.query(Comment).filter(Comment.issue_id == issue_id).all()
 
 class AISearchRequest(BaseModel):

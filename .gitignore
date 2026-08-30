@@ -25,3 +25,6 @@ fix_categories.py
 .vscode/
 .idea/
 .DS_Store
+# Google Drive Secrets
+credentials.json
+token.json
