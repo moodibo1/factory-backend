@@ -15,7 +15,10 @@ def get_notifications(db: Session = Depends(get_db), current_user: User = Depend
 
 @router.get("/unread-count")
 def get_unread_count(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    count = db.query(Notification).filter(Notification.is_read == 0).count()
+    count = db.query(Notification).filter(
+        Notification.user_id == current_user.id,
+        Notification.is_read == 0
+    ).count()
     return {"count": count}
 
 @router.patch("/{notification_id}/read")

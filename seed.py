@@ -34,17 +34,16 @@ def seed_admin():
             
         print("Creating new admin user...")
         
-        admin_user = User(
-            name="Primary Admin",
-            email=admin_email,
-            hashed_password=hash_password(admin_password),
-            role=RoleEnum.admin,
-            status=UserStatusEnum.approved,
-            is_verified=True,
-            category=CategoryEnum.admin,
-            # Granting total permissions to the admin
-            permissions='{"can_add": true, "can_delete": true, "can_edit_permissions": true}'
-        )
+    admin_user = User(
+        name="Primary Admin",
+        email=admin_email,
+        hashed_password=hash_password(admin_password),
+        role=RoleEnum.admin,
+        status=UserStatusEnum.approved,
+        categories=["admin"],
+        # Granting total permissions admin
+        permissions='{"can_add": true, "can_delete": true, "can_edit_permissions": true}'
+    )
         
         db.add(admin_user)
         db.commit()

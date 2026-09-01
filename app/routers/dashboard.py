@@ -24,7 +24,7 @@ def get_stats(db: Session = Depends(get_db), admin: User = Depends(require_admin
         "emergency": sum(1 for i in issues if i.type == TypeEnum.emergency),
         "by_category": {
             "lab": sum(1 for i in issues if i.category == "lab"),
-            "filling": sum(1 for i in issues if i.category == "filling"),
+            "secondary_packaging": sum(1 for i in issues if i.category == "secondary_packaging"),
             "production": sum(1 for i in issues if i.category == "production"),
         },
     }
@@ -57,7 +57,7 @@ def export_report(
     output.write('\ufeff')
     writer = csv.writer(output)
     writer.writerow(["الرقم", "العنوان", "الوصف", "القسم", "النوع", "الحالة", "الكاتب", "تاريخ الإنشاء", "تاريخ الإغلاق"])
-    category_map = {"lab": "المختبرات", "filling": "التعبئة", "production": "الإنتاج"}
+    category_map = {"lab": "المختبرات", "secondary_packaging": "التعبئة", "production": "الإنتاج"}
     type_map = {"problem": "مشكلة", "note": "ملاحظة", "emergency": "أمر طارئ"}
     status_map = {"open": "مفتوح", "in_progress": "قيد المعالجة", "closed": "مغلق", "reopened": "معاد فتحه"}
     for i in issues:

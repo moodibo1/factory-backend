@@ -8,22 +8,13 @@ load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-queries = [
-    "ALTER TABLE users ADD COLUMN is_verified BOOLEAN DEFAULT FALSE;",
-    "ALTER TABLE users ADD COLUMN verification_code VARCHAR(255);",
-    "ALTER TABLE users ADD COLUMN token_expires_at TIMESTAMP;"
-]
-
-# We should make this script safe (ignore if column exists).
-# In PostgreSQL:
-# ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT FALSE;
-# ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_code VARCHAR(255);
-# ALTER TABLE users ADD COLUMN IF NOT EXISTS token_expires_at TIMESTAMP;
-
 pg_queries = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT FALSE;",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_code VARCHAR;",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS token_expires_at TIMESTAMP;"
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS token_expires_at TIMESTAMP;",
+    # التعديلات الجديدة الخاصة بالأقسام
+    "ALTER TABLE users DROP COLUMN IF EXISTS category;",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS categories JSONB DEFAULT '[]'::jsonb;"
 ]
 
 if DATABASE_URL.startswith("postgres"):

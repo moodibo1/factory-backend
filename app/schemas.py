@@ -15,7 +15,7 @@ class UserOut(BaseModel):
     role: RoleEnum
     status: UserStatusEnum
     permissions: str
-    category: Optional[CategoryEnum] = None
+    categories:list[CategoryEnum] = []
     created_at: datetime
     class Config: from_attributes = True
 
@@ -65,7 +65,12 @@ class DashboardStats(BaseModel):
     by_category: dict
 
 class ApproveUserRequest(BaseModel):
-    category: CategoryEnum
+    categories: List[CategoryEnum] = []
+
+# تمت إضافة هذا القالب ليتوافق مع مسار تحديث حالة الموظف
+class UpdateStatusRequest(BaseModel):
+    status: UserStatusEnum
+    categories: Optional[List[CategoryEnum]] = None
 
 class NotificationOut(BaseModel):
     id: int

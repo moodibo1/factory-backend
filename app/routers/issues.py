@@ -1,11 +1,14 @@
-﻿from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import Optional
 from app.database import get_db
-from app.models.models import Issue, Comment, StatusEnum, User
+from app.models.models import Issue, Comment, StatusEnum, User, VALID_ISSUE_CATEGORIES
 from app.schemas import IssueOut, CommentCreate, CommentOut
 from app.auth import get_current_user, require_admin
 from app.models.models import TypeEnum, CategoryEnum
+from sqlalchemy import cast, String, or_, func
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.dialects.postgresql import JSONB
 import os, uuid, json, requests
 from pydantic import BaseModel
 
@@ -31,24 +34,36 @@ def get_issues(
     current_user: User = Depends(get_current_user)
 ):
     q = db.query(Issue).filter(Issue.is_archived == False)
-    
+
     # === DATA ISOLATION ===
     if current_user.role != "admin":
-        # Normal users see issues published to their specific category
-        user_cat = current_user.category.value if current_user.category else None
-        if user_cat:
-            from sqlalchemy import cast, String
-            q = q.filter(
-                (cast(Issue.categories, String).like(f'%"{user_cat}"%')) | 
-                (Issue.category == user_cat)
-            )
+        user_categories = [cat.value if hasattr(cat, 'value') else cat for cat in (current_user.categories or [])]
+        if user_categories:
+            # Use PostgreSQL JSONB array intersection for proper filtering
+            conditions = [Issue.category.in_(user_categories)]  # Legacy category field
+            # JSONB array intersection: check if any user category exists in issue.categories
+            # Use individual OR conditions for each category (simpler and reliable)
+            category_conditions = []
+            for cat in user_categories:
+                category_conditions.append(func.jsonb_exists(Issue.categories, cat))
+            if category_conditions:
+                conditions.extend(category_conditions)
+            q = q.filter(or_(*conditions))
         else:
             return []
-    
+
+    # === FILTERING ===
     if category:
-        from sqlalchemy import cast, String; q = q.filter((cast(Issue.categories, String).like(f'%"{category}"%')) | (Issue.category == category))
+        # Use JSONB operator for categories array and legacy category field
+        # Use PostgreSQL jsonb_exists function for proper type handling
+        q = q.filter(
+            (func.jsonb_exists(Issue.categories, category)) | 
+            (Issue.category == category)
+        )
+
     if creator_id:
         q = q.filter(Issue.creator_id == creator_id)
+
     offset = (page - 1) * limit
     return q.order_by(Issue.created_at.desc()).offset(offset).limit(limit).all()
 
@@ -60,29 +75,42 @@ def get_issues_count(
     current_user: User = Depends(get_current_user)
 ):
     q = db.query(Issue).filter(Issue.is_archived == False)
-    
+
     if current_user.role != "admin":
-        user_cat = current_user.category.value if current_user.category else None
-        if user_cat:
-            from sqlalchemy import cast, String
-            q = q.filter(
-                (cast(Issue.categories, String).like(f'%"{user_cat}"%')) | 
-                (Issue.category == user_cat)
-            )
+        user_categories = [cat.value if hasattr(cat, 'value') else cat for cat in (current_user.categories or [])]
+        if user_categories:
+            conditions = []
+            for cat in user_categories:
+                conditions.append(Issue.category == cat)
+            # JSONB array intersection: check if any user category exists in issue.categories  
+            # Use individual OR conditions for each category (simpler and reliable)
+            category_conditions = []
+            for cat in user_categories:
+                category_conditions.append(func.jsonb_exists(Issue.categories, cat))
+            if category_conditions:
+                conditions.extend(category_conditions)
+            q = q.filter(or_(*conditions))
         else:
             return {"total": 0}
-            
+
     if category:
-        from sqlalchemy import cast, String; q = q.filter((cast(Issue.categories, String).like(f'%"{category}"%')) | (Issue.category == category))
+        # Use JSONB operator for categories array and legacy category field
+        # ? operator expects JSONB column and text value (not JSONB)
+        q = q.filter(
+            (Issue.categories.op('?')(category)) | 
+            (Issue.category == category)
+        )
+
     if creator_id:
         q = q.filter(Issue.creator_id == creator_id)
+
     return {"total": q.count()}
 
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/jpg", "image/png", "image/webp"}
 ALLOWED_VIDEO_TYPES = {"video/mp4", "video/quicktime"}
 ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "mp4", "mov"}
-MAX_IMAGE_SIZE = 10 * 1024 * 1024   # 10MB
-MAX_VIDEO_SIZE = 50 * 1024 * 1024   # 50MB
+MAX_IMAGE_SIZE = 10 * 1024 * 1024
+MAX_VIDEO_SIZE = 50 * 1024 * 1024
 
 @router.post("/", response_model=IssueOut)
 def create_issue(
@@ -90,23 +118,26 @@ def create_issue(
     description: Optional[str] = Form(None),
     type: TypeEnum = Form(...),
     category: str = Form(...),
-    categories: Optional[str] = Form(None),  # JSON string of categories array for cross-posting
+    categories: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user)
 ):
     media_url = None
     media_type = None
 
-    # === CATEGORY VALIDATION ===
+    # === VALIDATE CATEGORY ===
+    if category not in VALID_ISSUE_CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Invalid category. Valid issue categories are: {list(VALID_ISSUE_CATEGORIES)}")
+
     if current_user.role != "admin":
-        user_category = current_user.category.value if current_user.category else None
-        if not user_category:
+        user_cats = [c.value if hasattr(c, 'value') else c for c in (current_user.categories or [])]
+        if not user_cats:
             raise HTTPException(status_code=403, detail="Your account has no assigned category")
-        if category != user_category:
-            raise HTTPException(status_code=403, detail=f"You can only post to your assigned category: {user_category}")
-        issue_categories = [user_category]
-        issue_primary_category = user_category
+        if category not in user_cats:
+            raise HTTPException(status_code=403, detail=f"You can only post to your assigned categories: {user_cats}")
+        issue_categories = [category]  # Use only selected category, not all user categories
+        issue_primary_category = category
     else:
         issue_primary_category = category
         issue_categories = [category]
@@ -119,41 +150,30 @@ def create_issue(
                 pass
 
     if file and file.filename:
-        # Validate file extension
         ext = file.filename.split(".")[-1].lower()
         if ext not in ALLOWED_EXTENSIONS:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Ù†ÙˆØ¹ Ø§Ù„Ù…Ù„Ù ØºÙŠØ± Ù…Ø³Ù…ÙˆØ­. Ø§Ù„Ø£Ù†ÙˆØ§Ø¹ Ø§Ù„Ù…Ø³Ù…ÙˆØ­Ø©: {', '.join(ALLOWED_EXTENSIONS)}"
-            )
+            raise HTTPException(status_code=400, detail=f"نوع الملف غير مسموح. الأنواع المسموح بها: {', '.join(ALLOWED_EXTENSIONS)}")
 
-        # Validate MIME type
         is_image = file.content_type in ALLOWED_IMAGE_TYPES
         is_video = file.content_type in ALLOWED_VIDEO_TYPES
         if not is_image and not is_video:
-            raise HTTPException(
-                status_code=400,
-                detail="Ù†ÙˆØ¹ Ø§Ù„Ù…Ù„Ù ØºÙŠØ± Ù…Ø¯Ø¹ÙˆÙ…. ÙŠÙØ³Ù…Ø­ ÙÙ‚Ø· Ø¨Ø§Ù„ØµÙˆØ± (JPG, PNG, WEBP) ÙˆÙ…Ù‚Ø§Ø·Ø¹ Ø§Ù„ÙÙŠØ¯ÙŠÙˆ (MP4, MOV)"
-            )
+            raise HTTPException(status_code=400, detail="نوع الملف غير مدعوم. يسمح فقط بالصور (JPG, PNG, WEBP) ومقاطع الفيديو (MP4, MOV)")
 
-        # Read file content and validate size
         content = file.file.read()
         file_size = len(content)
 
         if is_image and file_size > MAX_IMAGE_SIZE:
-            raise HTTPException(status_code=400, detail="Ø­Ø¬Ù… Ø§Ù„ØµÙˆØ±Ø© ÙƒØ¨ÙŠØ± Ø¬Ø¯Ø§Ù‹. Ø§Ù„Ø­Ø¯ Ø§Ù„Ø£Ù‚ØµÙ‰ 10MB")
+            raise HTTPException(status_code=400, detail="حجم الصورة كبير جداً. الحد الأقصى 10MB")
         if is_video and file_size > MAX_VIDEO_SIZE:
-            raise HTTPException(status_code=400, detail="Ø­Ø¬Ù… Ø§Ù„ÙÙŠØ¯ÙŠÙˆ ÙƒØ¨ÙŠØ± Ø¬Ø¯Ø§Ù‹. Ø§Ù„Ø­Ø¯ Ø§Ù„Ø£Ù‚ØµÙ‰ 50MB")
+            raise HTTPException(status_code=400, detail="حجم الفيديو كبير جداً. الحد الأقصى 50MB")
 
-        # Upload to Supabase Storage â€” required, no local fallback
         filename = f"{uuid.uuid4()}.{ext}"
-
         supabase_url = os.getenv("SUPABASE_URL")
         supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
         bucket_name = os.getenv("SUPABASE_BUCKET", "media")
 
         if not supabase_url or not supabase_key:
-            raise HTTPException(status_code=500, detail="Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ø§Ù„ØªØ®Ø²ÙŠÙ† Ø§Ù„Ø³Ø­Ø§Ø¨ÙŠ ØºÙŠØ± Ù…ÙƒØªÙ…Ù„Ø© Ø¹Ù„Ù‰ Ø§Ù„Ø®Ø§Ø¯Ù…")
+            raise HTTPException(status_code=500, detail="إعدادات التخزين السحابي غير مكتملة على الخادم")
 
         upload_url = f"{supabase_url}/storage/v1/object/{bucket_name}/{filename}"
         headers = {
@@ -161,11 +181,12 @@ def create_issue(
             "apikey": supabase_key,
             "Content-Type": file.content_type,
         }
+
         res = requests.post(upload_url, headers=headers, data=content)
 
         if res.status_code >= 400:
             print(f"Supabase Upload Error {res.status_code}: {res.text}")
-            raise HTTPException(status_code=500, detail="ÙØ´Ù„ Ø±ÙØ¹ Ø§Ù„Ù…Ù„Ù Ø¥Ù„Ù‰ Ø§Ù„ØªØ®Ø²ÙŠÙ† Ø§Ù„Ø³Ø­Ø§Ø¨ÙŠ")
+            raise HTTPException(status_code=500, detail="فشل رفع الملف إلى التخزين السحابي")
 
         media_url = f"{supabase_url}/storage/v1/object/public/{bucket_name}/{filename}"
         media_type = "video" if is_video else "image"
@@ -187,17 +208,17 @@ def cycle_status(issue_id: int, db: Session = Depends(get_db), admin: User = Dep
     issue = db.query(Issue).filter(Issue.id == issue_id).first()
     if not issue:
         raise HTTPException(status_code=404, detail="Issue not found")
-    from datetime import datetime,timezone
+    from datetime import datetime, timezone
     issue.status = STATUS_CYCLE[issue.status]
     if issue.status == StatusEnum.closed:
         issue.closed_at = datetime.now(timezone.utc)
     elif issue.status == StatusEnum.in_progress:
         issue.closed_at = None
         if issue.in_progress_at is None:
-         issue.in_progress_at = datetime.now(timezone.utc)
+            issue.in_progress_at = datetime.now(timezone.utc)
     else:
         issue.closed_at = None
-        
+
     db.commit()
     db.refresh(issue)
     return issue
@@ -207,9 +228,9 @@ def close_issue(issue_id: int, db: Session = Depends(get_db), admin: User = Depe
     issue = db.query(Issue).filter(Issue.id == issue_id).first()
     if not issue:
         raise HTTPException(status_code=404, detail="Issue not found")
-    
+
     from datetime import datetime, timezone
-    
+
     issue.status = StatusEnum.closed
     issue.closed_at = datetime.now(timezone.utc)
     db.commit()
@@ -224,11 +245,10 @@ def share_issue(issue_id: int, data: ShareIssueRequest, db: Session = Depends(ge
     issue = db.query(Issue).filter(Issue.id == issue_id).first()
     if not issue:
         raise HTTPException(status_code=404, detail="Issue not found")
-    
-    # Overwrite the post's categories array entirely with the new selection
+
     if not data.categories:
         raise HTTPException(status_code=400, detail="Must select at least one category")
-        
+
     issue.categories = data.categories
     db.commit()
     db.refresh(issue)
@@ -239,6 +259,15 @@ def add_comment(issue_id: int, data: CommentCreate, db: Session = Depends(get_db
     issue = db.query(Issue).filter(Issue.id == issue_id).first()
     if not issue:
         raise HTTPException(status_code=404, detail="Issue not found")
+    
+    # DATA ISOLATION: Check access to this issue
+    if current_user.role != "admin":
+        user_categories = [cat.value if hasattr(cat, 'value') else cat for cat in (current_user.categories or [])]
+        if not user_categories:
+            raise HTTPException(status_code=403, detail="Your account has no assigned category")
+        if issue.category not in user_categories and not any(c in user_categories for c in (issue.categories or [])):
+            raise HTTPException(status_code=403, detail="You do not have access to this issue")
+    
     comment = Comment(text=data.text, author_id=current_user.id, issue_id=issue_id)
     db.add(comment)
     db.commit()
@@ -248,16 +277,73 @@ def add_comment(issue_id: int, data: CommentCreate, db: Session = Depends(get_db
 @router.get("/{issue_id}/comments", response_model=list[CommentOut])
 def get_comments(
     issue_id: int, 
-    db: Session = Depends(get_db),  
-    current_user = Depends(get_current_user)  
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
+    issue = db.query(Issue).filter(Issue.id == issue_id).first()
+    if not issue:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    
+    # DATA ISOLATION: Check access to this issue
+    if current_user.role != "admin":
+        user_categories = [cat.value if hasattr(cat, 'value') else cat for cat in (current_user.categories or [])]
+        if not user_categories:
+            raise HTTPException(status_code=403, detail="Your account has no assigned category")
+        if issue.category not in user_categories and not any(c in user_categories for c in (issue.categories or [])):
+            raise HTTPException(status_code=403, detail="You do not have access to this issue")
+    
     return db.query(Comment).filter(Comment.issue_id == issue_id).all()
+
+class UpdateIssueRequest(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    type: Optional[TypeEnum] = None
+
+@router.put("/{issue_id}", response_model=IssueOut)
+def update_issue(
+    issue_id: int,
+    data: UpdateIssueRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    issue = db.query(Issue).filter(Issue.id == issue_id).first()
+    if not issue:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    
+    # Check ownership: only creator can edit their own issues
+    if current_user.id != issue.creator_id:
+        raise HTTPException(status_code=403, detail="You can only edit your own issues")
+    
+    # Update fields if provided
+    if data.title is not None:
+        issue.title = data.title
+    if data.description is not None:
+        issue.description = data.description
+    if data.type is not None:
+        issue.type = data.type
+    
+    db.commit()
+    db.refresh(issue)
+    return issue
 
 class AISearchRequest(BaseModel):
     query: str
 
 @router.post("/ai-search", response_model=list[IssueOut])
 async def ai_search(data: AISearchRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    # AI Search temporarily disabled - returning all issues
-    issues = db.query(Issue).order_by(Issue.created_at.desc()).all()
+    # DATA ISOLATION: Apply category filtering for non-admin users
+    q = db.query(Issue).order_by(Issue.created_at.desc())
+    
+    if current_user.role != "admin":
+        user_categories = [cat.value if hasattr(cat, 'value') else cat for cat in (current_user.categories or [])]
+        if user_categories:
+            conditions = []
+            for cat in user_categories:
+                conditions.append(Issue.category == cat)
+                conditions.append(cast(Issue.categories, String).like(f'%"{cat}"%'))
+            q = q.filter(or_(*conditions))
+        else:
+            return []
+    
+    issues = q.all()
     return issues

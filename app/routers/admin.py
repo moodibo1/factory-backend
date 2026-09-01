@@ -46,6 +46,8 @@ def update_user_status(user_id: int, data: UpdateStatusRequest, db: Session = De
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     user.status = data.status
+    if data.categories is not None:
+        user.categories = data.categories
     db.commit()
     db.refresh(user)
     return user
@@ -55,12 +57,12 @@ def approve_user(user_id: int, data: ApproveUserRequest, db: Session = Depends(g
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    if data.category == CategoryEnum.admin:
+    if CategoryEnum.admin in data.categories:
         user.role = RoleEnum.admin
     else:
         user.role = RoleEnum.user
     user.status = UserStatusEnum.approved
-    user.category = data.category
+    user.categories = data.categories
     db.commit()
     db.refresh(user)
     return user
