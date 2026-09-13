@@ -14,7 +14,7 @@ app = FastAPI(title="Factory Issues API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173","https://factory-issues.vercel.app"],
+    allow_origins=["http://localhost:5173","https://factory-issues.vercel.app","https://d1wan.org","https://www.d1wan.org"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
