@@ -26,5 +26,10 @@ fix_categories.py
 .idea/
 .DS_Store
 # Google Drive Secrets
-credentials.json
-token.json
+drive/credentials.json
+drive/token.json
+
+# Temporary migration and debug scripts
+debug_*.py
+migrate_*.py
+test_*.py

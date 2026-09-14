@@ -10,3 +10,4 @@ python-dotenv>=1.0.0
 pydantic>=2.0.0
 email-validator
 requests>=2.31.0
+resend>=2.0.0

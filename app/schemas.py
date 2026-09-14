@@ -81,3 +81,12 @@ class NotificationOut(BaseModel):
     created_at: datetime
     issue_id: Optional[int] = None
     class Config: from_attributes = True
+
+# Password Reset
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+class PasswordResetVerify(BaseModel):
+    email: EmailStr
+    otp: str
+    new_password: str

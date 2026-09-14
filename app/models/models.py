@@ -56,6 +56,8 @@ class User(Base):
     permissions = Column(Text, default='{"can_add": true, "can_delete": false, "can_edit_permissions": false}')
     
     categories = Column(JSONB, default=list)  # NEW: multi-category support
+    reset_code = Column(String(6), nullable=True)
+    otp_expires_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     issues = relationship("Issue", back_populates="creator")
     comments = relationship("Comment", back_populates="author")
