@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Enum, Boolean
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Enum, Boolean, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -101,3 +101,22 @@ class Notification(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     issue_id = Column(Integer, ForeignKey("issues.id"), nullable=True)
+
+
+class MonthlyReport(Base):
+    __tablename__ = "monthly_reports"
+    __table_args__ = (
+        UniqueConstraint("department", "month", "year", name="uq_monthly_report_department_month_year"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    department = Column(String, nullable=False, index=True)
+    month = Column(Integer, nullable=False)
+    year = Column(Integer, nullable=False)
+    file_url = Column(String, nullable=True)
+    file_path = Column(String, nullable=True)
+    total_issues = Column(Integer, default=0, nullable=False)
+    open_issues = Column(Integer, default=0, nullable=False)
+    closed_issues = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

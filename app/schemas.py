@@ -1,6 +1,6 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr
 from typing import Optional, List
-from datetime import datetime
+from datetime import date, datetime
 from app.models.models import TypeEnum, StatusEnum, RoleEnum, NotificationTypeEnum, UserStatusEnum, CategoryEnum
 
 class UserCreate(BaseModel):
@@ -90,3 +90,25 @@ class PasswordResetVerify(BaseModel):
     email: EmailStr
     otp: str
     new_password: str
+
+
+class MonthlyReportOut(BaseModel):
+    id: int
+    title: str
+    department: str
+    month: int
+    year: int
+    file_url: Optional[str] = None
+    file_path: Optional[str] = None
+    total_issues: int
+    open_issues: int
+    closed_issues: int
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CustomReportRequest(BaseModel):
+    department: str
+    start_date: date
+    end_date: date
+    language: str = "ar"

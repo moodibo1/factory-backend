@@ -14,7 +14,14 @@ pg_queries = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS token_expires_at TIMESTAMP;",
     # التعديلات الجديدة الخاصة بالأقسام
     "ALTER TABLE users DROP COLUMN IF EXISTS category;",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS categories JSONB DEFAULT '[]'::jsonb;"
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS categories JSONB DEFAULT '[]'::jsonb;",
+    "DELETE FROM monthly_reports WHERE id IN ("
+    "SELECT id FROM ("
+    "SELECT id, ROW_NUMBER() OVER (PARTITION BY department, month, year ORDER BY created_at DESC NULLS LAST, id DESC) AS row_num "
+    "FROM monthly_reports"
+    ") duplicates WHERE row_num > 1"
+    ");",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_monthly_report_department_month_year ON monthly_reports (department, month, year);"
 ]
 
 if DATABASE_URL.startswith("postgres"):

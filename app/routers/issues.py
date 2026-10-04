@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import Optional
+from urllib.parse import urlparse
 from app.database import get_db
 from app.models.models import Issue, Comment, StatusEnum, User, VALID_ISSUE_CATEGORIES
 from app.schemas import IssueOut, CommentCreate, CommentOut
