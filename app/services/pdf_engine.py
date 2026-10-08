@@ -4,7 +4,7 @@ import logging
 import os
 
 
-
+os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "/opt/render/.cache/ms-playwright"
 logger = logging.getLogger(__name__)
 
 
@@ -20,7 +20,7 @@ def generate_pdf_from_html(html_content: str) -> bytes:
         ) from error
 
     try: 
-        os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "/opt/render/.cache/ms-playwright")
+        
         with sync_playwright() as playwright:
            
             browser = playwright.chromium.launch(headless=True)
