@@ -5,27 +5,45 @@ import os
 
 load_dotenv()
 
-def normalize_database_url(database_url: str | None) -> str | None:
-    """Return a SQLAlchemy URL with an explicitly available PostgreSQL driver."""
-    if not database_url:
-        return database_url
 
-    if database_url.startswith("postgres://"):
-        return database_url.replace("postgres://", "postgresql+psycopg://", 1)
-    if database_url.startswith("postgresql://"):
-        return database_url.replace("postgresql://", "postgresql+psycopg://", 1)
-    if database_url.startswith("postgresql+psycopg2://"):
-        return database_url
-    if database_url.startswith("postgresql+psycopg://"):
-        return database_url
-    return database_url
+def _detect_driver() -> str:
+    """Return the best available PostgreSQL driver name for SQLAlchemy."""
+    try:
+        import psycopg  # noqa: F401
+        return "postgresql+psycopg"
+    except ImportError:
+        pass
+    try:
+        import psycopg2  # noqa: F401
+        return "postgresql+psycopg2"
+    except ImportError:
+        pass
+    # Bare dialect — let SQLAlchemy decide
+    return "postgresql"
 
 
-DATABASE_URL = normalize_database_url(os.getenv("DATABASE_URL"))
+def _normalize_url(url: str | None) -> str | None:
+    """Rewrite DATABASE_URL to use the detected driver prefix."""
+    if not url:
+        return url
+    driver = _detect_driver()
+    # Strip any existing driver suffix
+    for prefix in (
+        "postgresql+psycopg://",
+        "postgresql+psycopg2://",
+        "postgresql://",
+        "postgres://",
+    ):
+        if url.startswith(prefix):
+            return url.replace(prefix, f"{driver}://", 1)
+    return url
 
-# Supabase Pooler fix: disable prepared statements in connect_args for PgBouncer
+
+DATABASE_URL = _normalize_url(os.getenv("DATABASE_URL"))
+
+# Supabase Pooler fix: disable prepared statements for PgBouncer
 connect_args = {}
-if DATABASE_URL and "pooler.supabase.com" in DATABASE_URL and DATABASE_URL.startswith("postgresql+psycopg://"):
+if DATABASE_URL and "pooler.supabase.com" in DATABASE_URL:
     connect_args["prepare_threshold"] = None
 
 if not DATABASE_URL:
@@ -35,8 +53,10 @@ engine = create_engine(DATABASE_URL, connect_args=connect_args, pool_pre_ping=Tr
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+
 class Base(DeclarativeBase):
     pass
+
 
 def get_db():
     db = SessionLocal()
