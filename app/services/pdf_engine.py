@@ -4,7 +4,13 @@ import logging
 import os
 
 
-os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "/opt/render/.cache/ms-playwright"
+import os
+
+# توجيه مسار المتصفحات ليكون داخل مجلد المشروع لضمان استمراره في وقت التشغيل
+os.environ.setdefault(
+    "PLAYWRIGHT_BROWSERS_PATH",
+    os.path.join(os.path.dirname(__file__), "..", "..", "ms-playwright"),
+)
 logger = logging.getLogger(__name__)
 
 
