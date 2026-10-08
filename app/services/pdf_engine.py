@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import logging
+import os
+
+
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +23,7 @@ def generate_pdf_from_html(html_content: str) -> bytes:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True)
             try:
+                os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "/opt/render/.cache/ms-playwright")
                 page = browser.new_page(
                     viewport={"width": 1440, "height": 1024},
                     device_scale_factor=1,
