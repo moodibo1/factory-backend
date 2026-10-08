@@ -19,11 +19,13 @@ def generate_pdf_from_html(html_content: str) -> bytes:
             "Install backend requirements with 'python -m pip install -r requirements.txt'."
         ) from error
 
-    try:
+    try: 
+        os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "/opt/render/.cache/ms-playwright")
         with sync_playwright() as playwright:
+           
             browser = playwright.chromium.launch(headless=True)
             try:
-                os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "/opt/render/.cache/ms-playwright")
+               
                 page = browser.new_page(
                     viewport={"width": 1440, "height": 1024},
                     device_scale_factor=1,
