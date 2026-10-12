@@ -240,7 +240,7 @@ def monthly_archive_cleanup(data: MonthlyMaintenanceRequest, db: DbDep, admin: A
             }
             for report in result["reports"]
         ],
-        "archived_issue_count": result["archived_issue_count"],
+        "archived_issue_count": result["purged_count"],
         "retention_cutoff": result["retention_cutoff"],
     })
 

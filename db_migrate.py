@@ -22,9 +22,16 @@ pg_queries = [
     ") duplicates WHERE row_num > 1"
     ");",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_monthly_report_department_month_year ON monthly_reports (department, month, year);"
+    ,
+    "CREATE TABLE IF NOT EXISTS report_batch_jobs ("
+    "id SERIAL PRIMARY KEY, year INTEGER NOT NULL, month INTEGER NOT NULL, "
+    "status VARCHAR NOT NULL DEFAULT 'pending', result JSONB, error TEXT, "
+    "created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW(), "
+    "CONSTRAINT uq_report_batch_job_year_month UNIQUE (year, month)"
+    ");"
 ]
 
-if DATABASE_URL.startswith("postgres"):
+if DATABASE_URL and DATABASE_URL.startswith("postgres"):
     print(f"Connecting to PostgreSQL...")
     conn = psycopg2.connect(DATABASE_URL)
     conn.autocommit = True
