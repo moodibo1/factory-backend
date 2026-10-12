@@ -24,6 +24,7 @@ RETENTION_DAYS = 60
 # Advisory lock IDs — arbitrary unique integers per job type
 _LOCK_BIMONTHLY = 900_001
 _LOCK_DAILY_CHECK = 900_002
+_LOCK_REPORT_BATCH = 900_003
 
 _scheduler: BackgroundScheduler | None = None
 
@@ -252,6 +253,20 @@ def daily_storage_check_job() -> dict:
         db.close()
 
 
+def process_report_batch_job() -> dict:
+    db = SessionLocal()
+    try:
+        if not _try_advisory_lock(db, _LOCK_REPORT_BATCH):
+            return {"skipped": True, "reason": "advisory_lock_held"}
+        try:
+            from app.maintenance import process_report_batch_jobs
+            return process_report_batch_jobs(db)
+        finally:
+            _release_advisory_lock(db, _LOCK_REPORT_BATCH)
+    finally:
+        db.close()
+
+
 # ---------------------------------------------------------------------------
 # Scheduler lifecycle
 # ---------------------------------------------------------------------------
@@ -314,6 +329,15 @@ def start_scheduler() -> BackgroundScheduler:
         coalesce=True,
         max_instances=1,
         misfire_grace_time=2 * 60 * 60,
+    )
+    _scheduler.add_job(
+        process_report_batch_job,
+        trigger="interval",
+        minutes=1,
+        id="process-report-batch-jobs",
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
     )
 
     _scheduler.start()

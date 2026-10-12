@@ -33,3 +33,4 @@ drive/token.json
 debug_*.py
 migrate_*.py
 test_*.py
+!tests/test_pdf_pipeline.py

@@ -120,3 +120,19 @@ class MonthlyReport(Base):
     open_issues = Column(Integer, default=0, nullable=False)
     closed_issues = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class ReportBatchJob(Base):
+    __tablename__ = "report_batch_jobs"
+    __table_args__ = (
+        UniqueConstraint("year", "month", name="uq_report_batch_job_year_month"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    year = Column(Integer, nullable=False)
+    month = Column(Integer, nullable=False)
+    status = Column(String, nullable=False, default="pending", index=True)
+    result = Column(JSONB, nullable=True)
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

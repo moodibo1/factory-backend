@@ -107,6 +107,18 @@ class MonthlyReportOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ReportBatchJobOut(BaseModel):
+    id: int
+    year: int
+    month: int
+    status: str
+    result: Optional[dict] = None
+    error: Optional[str] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    model_config = ConfigDict(from_attributes=True)
+
+
 class CustomReportRequest(BaseModel):
     department: str
     start_date: date

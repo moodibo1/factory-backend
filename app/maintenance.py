@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 import requests
 from sqlalchemy.orm import Session
 
-from app.models.models import Issue, MonthlyReport, StatusEnum
+from app.models.models import Issue, MonthlyReport, ReportBatchJob, StatusEnum
 from app.reporting import REPORTS_DIR, generate_report_pdf
 
 logger = logging.getLogger(__name__)
@@ -196,7 +196,12 @@ def _upsert_monthly_report(
     return report
 
 
-def run_bimonthly_cycle(target_year: int, target_month: int, db: Session) -> dict:
+def run_bimonthly_cycle(
+    target_year: int,
+    target_month: int,
+    db: Session,
+    retention_days: int = 60,
+) -> dict:
     """Task A + Task B: generate dossiers for all departments, then purge old images."""
     if not 1 <= target_month <= 12:
         raise ValueError("target_month must be between 1 and 12")
@@ -241,7 +246,7 @@ def run_bimonthly_cycle(target_year: int, target_month: int, db: Session) -> dic
         raise
 
     # ── Task B: Purge closed-issue images older than prior month ───────────
-    retention_cutoff = datetime.now(timezone.utc) - timedelta(days=60)
+    retention_cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
     purged = 0
     failed_ids: list[int] = []
 
@@ -283,6 +288,7 @@ def run_bimonthly_cycle(target_year: int, target_month: int, db: Session) -> dic
         "month": target_month,
         "reports": generated,
         "purged_count": purged,
+        "archived_issue_count": purged,
         "failed_issue_ids": failed_ids,
         "retention_cutoff": retention_cutoff.isoformat(),
     }
@@ -378,14 +384,21 @@ def run_emergency_fallback(db: Session, reason: str = "manual") -> dict:
 # Standalone entry for run_monthly_archival_and_cleanup (backward compat)
 # ---------------------------------------------------------------------------
 
-def run_monthly_archival_and_cleanup(target_year: int, target_month: int) -> dict:
-    """Backward-compatible wrapper with its own session."""
+def run_monthly_archival_and_cleanup(
+    target_year: int,
+    target_month: int,
+    db: Session | None = None,
+    retention_days: int = 60,
+) -> dict:
+    """Run the maintenance cycle with either a supplied or owned session."""
     from app.database import SessionLocal
-    db = SessionLocal()
+    owns_session = db is None
+    session = db or SessionLocal()
     try:
-        return run_bimonthly_cycle(target_year, target_month, db)
+        return run_bimonthly_cycle(target_year, target_month, session, retention_days)
     finally:
-        db.close()
+        if owns_session:
+            session.close()
 
 
 def _run_monthly_archival_and_cleanup(
@@ -395,4 +408,88 @@ def _run_monthly_archival_and_cleanup(
     retention_days: int = 60,
 ) -> dict:
     """Backward-compatible wrapper delegating to run_bimonthly_cycle."""
-    return run_bimonthly_cycle(target_year, target_month, db)
+    return run_monthly_archival_and_cleanup(target_year, target_month, db, retention_days)
+
+
+def run_monthly_report_batch(target_year: int, target_month: int, db: Session) -> list[MonthlyReport]:
+    """Generate one monthly PDF per department sequentially in a worker session."""
+    if not 1 <= target_month <= 12:
+        raise ValueError("target_month must be between 1 and 12")
+    if not 2000 <= target_year <= 9999:
+        raise ValueError("target_year is out of range")
+
+    start_dt, end_dt = _month_bounds(target_year, target_month)
+    reports: list[MonthlyReport] = []
+    try:
+        for department in VALID_DEPARTMENTS:
+            issues = (
+                db.query(Issue)
+                .filter(
+                    Issue.category == department,
+                    Issue.created_at >= start_dt,
+                    Issue.created_at < end_dt,
+                )
+                .order_by(Issue.created_at.desc())
+                .all()
+            )
+            title = f"Monthly report - {department} - {target_year}-{target_month:02d}"
+            pdf_path = generate_report_pdf(
+                title=title,
+                department=department,
+                issues=issues,
+                language="ar",
+                start_date=start_dt.strftime("%Y-%m-%d"),
+                end_date=(end_dt - timedelta(days=1)).strftime("%Y-%m-%d"),
+                output_dir=str(REPORTS_DIR),
+            )
+            report = _upsert_monthly_report(
+                db, department, target_year, target_month, issues, pdf_path
+            )
+            report.title = title
+            reports.append(report)
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Monthly report batch failed %04d-%02d", target_year, target_month)
+        raise
+    return reports
+
+
+def process_report_batch_jobs(db: Session | None = None) -> dict:
+    """Process one durable pending batch, keeping Chromium work out of HTTP requests."""
+    from app.database import SessionLocal
+
+    owns_session = db is None
+    session = db or SessionLocal()
+    try:
+        job = (
+            session.query(ReportBatchJob)
+            .filter(ReportBatchJob.status == "pending")
+            .order_by(ReportBatchJob.created_at.asc(), ReportBatchJob.id.asc())
+            .with_for_update(skip_locked=True)
+            .first()
+        )
+        if job is None:
+            return {"processed": False}
+        job.status = "running"
+        session.commit()
+        try:
+            reports = run_monthly_report_batch(job.year, job.month, session)
+            job.result = {
+                "reports": [
+                    {"id": report.id, "department": report.department, "file_url": report.file_url}
+                    for report in reports
+                ]
+            }
+            job.status = "completed"
+            job.error = None
+        except Exception as error:
+            session.rollback()
+            job = session.get(ReportBatchJob, job.id)
+            job.status = "failed"
+            job.error = str(error)[:1000]
+        session.commit()
+        return {"processed": True, "job_id": job.id, "status": job.status}
+    finally:
+        if owns_session:
+            session.close()

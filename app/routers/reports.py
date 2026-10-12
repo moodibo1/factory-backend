@@ -4,15 +4,16 @@ from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth import require_admin
 from app.database import get_db
-from app.models.models import CategoryEnum, Issue, MonthlyReport, StatusEnum, User
+from app.models.models import CategoryEnum, Issue, MonthlyReport, ReportBatchJob, StatusEnum, User
 from app.reporting import REPORTS_DIR, generate_report_pdf
-from app.schemas import CustomReportRequest, MonthlyReportOut
+from app.schemas import CustomReportRequest, MonthlyReportOut, ReportBatchJobOut
 
 router = APIRouter(prefix="/reports", tags=["Reports"])
 
@@ -154,7 +155,11 @@ def custom_export(
     return _pdf_response(output_path, "inline", filename)
 
 
-@router.post("/generate-monthly-batch", response_model=list[MonthlyReportOut])
+@router.post(
+    "/generate-monthly-batch",
+    response_model=ReportBatchJobOut,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 def generate_monthly_batch(
     year: Optional[int] = None,
     month: Optional[int] = None,
@@ -165,76 +170,39 @@ def generate_monthly_batch(
     target_year = year or now.year
     target_month = month or now.month
 
-    generated: list[MonthlyReport] = []
-    for department in VALID_DEPARTMENTS:
-        start_dt = datetime(target_year, target_month, 1, tzinfo=timezone.utc)
-        if target_month == 12:
-            end_dt = datetime(target_year + 1, 1, 1, tzinfo=timezone.utc)
-        else:
-            end_dt = datetime(target_year, target_month + 1, 1, tzinfo=timezone.utc)
-
-        issues = (
-            db.query(Issue)
-            .filter(Issue.category == _department_value(department))
-            .filter(Issue.created_at >= start_dt)
-            .filter(Issue.created_at < end_dt)
-            .all()
-        )
-
-        open_count = sum(1 for issue in issues if issue.status == StatusEnum.open)
-        closed_count = sum(1 for issue in issues if issue.status == StatusEnum.closed)
-
-        existing = (
-            db.query(MonthlyReport)
-            .filter(MonthlyReport.department == department)
-            .filter(MonthlyReport.month == target_month)
-            .filter(MonthlyReport.year == target_year)
-            .first()
-        )
-
-        report = existing or MonthlyReport(
-            title=f"Monthly report - {department} - {target_year}-{target_month:02d}",
-            department=department,
-            month=target_month,
-            year=target_year,
-            total_issues=0,
-            open_issues=0,
-            closed_issues=0,
-        )
-
-        report.title = f"Monthly report - {department} - {target_year}-{target_month:02d}"
-        report.department = department
-        report.month = target_month
-        report.year = target_year
-        report.total_issues = len(issues)
-        report.open_issues = open_count
-        report.closed_issues = closed_count
-
+    if not 1 <= target_month <= 12:
+        raise HTTPException(status_code=400, detail="month must be between 1 and 12")
+    job = (
+        db.query(ReportBatchJob)
+        .filter(ReportBatchJob.year == target_year, ReportBatchJob.month == target_month)
+        .first()
+    )
+    if job is None:
+        job = ReportBatchJob(year=target_year, month=target_month, status="pending")
+        db.add(job)
         try:
-            pdf_path = generate_report_pdf(
-                title=report.title,
-                department=department,
-                issues=issues,
-                language="ar",
-                start_date=start_dt.strftime("%Y-%m-%d"),
-                end_date=(end_dt - timedelta(days=1)).strftime("%Y-%m-%d"),
-                output_dir=str(REPORTS_DIR),
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            job = (
+                db.query(ReportBatchJob)
+                .filter(
+                    ReportBatchJob.year == target_year,
+                    ReportBatchJob.month == target_month,
+                )
+                .one()
             )
-        except RuntimeError as error:
-            raise HTTPException(
-                status_code=503,
-                detail="PDF generation is unavailable. Install the backend PDF dependencies.",
-            ) from error
-        relative_name = pdf_path.replace('\\', '/').split('uploads/')[-1] if 'uploads/' in pdf_path.replace('\\', '/') else pdf_path.split('/')[-1]
-        report.file_path = pdf_path
-        report.file_url = f"/uploads/{relative_name}"
+        db.refresh(job)
+    return job
 
-        if existing is None:
-            db.add(report)
-        db.flush()
-        generated.append(report)
 
-    db.commit()
-    for report in generated:
-        db.refresh(report)
-    return generated
+@router.get("/monthly-batch/{job_id}", response_model=ReportBatchJobOut)
+def get_monthly_batch(
+    job_id: int,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    job = db.query(ReportBatchJob).filter(ReportBatchJob.id == job_id).first()
+    if job is None:
+        raise HTTPException(status_code=404, detail="Report batch job not found")
+    return job
